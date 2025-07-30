@@ -37,7 +37,6 @@ jobs:
           cd ios/App
           pod install
 
-          # Replace 'App' with your actual scheme name if different
           xcodebuild -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
@@ -99,7 +98,8 @@ jobs:
           npm run build
           npx cap sync android
           cd android
-          ./gradlew assembleRelease
+          # ./gradlew assembleRelease  # ❌ Changed to debug because release builds are unsigned and fail to install
+          ./gradlew assembleDebug      # ✅ Debug APK is automatically signed with debug key and installable
 
       - name: Debug APK output path
         run: find android/app/build/outputs -type f
@@ -107,7 +107,8 @@ jobs:
       - name: Rename and upload APK artifact
         run: |
           mkdir -p release
-          cp android/app/build/outputs/apk/release/app-release-unsigned.apk release/app-${{ needs.build-ios.outputs.datetime_tag }}.apk
+          # cp android/app/build/outputs/apk/release/app-release-unsigned.apk release/app-${{ needs.build-ios.outputs.datetime_tag }}.apk  # ❌ Changed to debug because release builds are unsigned and fail to install
+          cp android/app/build/outputs/apk/debug/app-debug.apk release/app-${{ needs.build-ios.outputs.datetime_tag }}.apk    # ✅ Debug APK is automatically signed with debug key and installable
 
       - uses: actions/upload-artifact@v4
         with:
