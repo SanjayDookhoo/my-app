@@ -54,7 +54,7 @@ jobs:
           path: release/*.apk
 
 
-  build-ios:
+    build-ios:
     runs-on: macos-latest
     needs: build-android
     outputs:
@@ -70,14 +70,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build iOS Archive and IPA (Unsigned)
+      - name: Prepare iOS build
         run: |
           npm run build
           npx cap sync ios
           cd ios/App
           pod install
 
-          # Archive the app
+      - name: Build and export unsigned IPA
+        run: |
+          cd ios/App
+
+          # Archive the build
           xcodebuild -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
@@ -86,13 +90,31 @@ jobs:
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
             -archivePath $PWD/build/App.xcarchive archive | tee xcodebuild.log
 
-          # Export unsigned .ipa without plist (default behavior)
+          # Write ExportOptions.plist
+          cat > ExportOptions.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key>
+  <string>development</string>
+  <key>signingStyle</key>
+  <string>manual</string>
+  <key>stripSwiftSymbols</key>
+  <true/>
+  <key>destination</key>
+  <string>export</string>
+  <key>compileBitcode</key>
+  <false/>
+</dict>
+</plist>
+EOF
+
+          # Export unsigned IPA
           xcodebuild -exportArchive \
             -archivePath $PWD/build/App.xcarchive \
-            -exportPath $PWD/build/export \
-            -allowProvisioningUpdates \
-            -exportOptionsPlist <(echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>method</key><string>development</string><key>signingStyle</key><string>manual</string><key>stripSwiftSymbols</key><true/><key>compileBitcode</key><false/><key>destination</key><string>export</string></dict></plist>') \
-            | tee xcodebuild-export.log
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath $PWD/build/export | tee xcodebuild-export.log
 
           mkdir -p release
           cp build/export/*.ipa release/App-${{ needs.build-android.outputs.datetime_tag }}.ipa
@@ -105,6 +127,7 @@ jobs:
         with:
           name: ios-artifact
           path: ios/App/release/*.ipa
+
 
 
   release:
