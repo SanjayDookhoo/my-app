@@ -5,10 +5,70 @@ on:
     branches: [main]
 
 jobs:
-  build-android:
-    runs-on: ubuntu-latest
+  build-ios:
+    runs-on: macos-latest
     outputs:
       datetime_tag: ${{ steps.timestamp.outputs.datetime_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set time-based release tag (GMT -4)
+        id: timestamp
+        run: |
+          export TZ=America/Puerto_Rico
+          DATETIME=$(date +"%Y-%m-%d-%H-%M")
+          echo "datetime_tag=$DATETIME" >> "$GITHUB_OUTPUT"
+
+      - name: Build iOS Archive and IPA (Unsigned)
+        run: |
+          npm run build
+          npx cap sync ios
+          cd ios/App
+          pod install
+
+          # Archive the app
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination generic/platform=iOS \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            -archivePath $PWD/build/App.xcarchive archive | tee xcodebuild.log
+
+          # Export unsigned .ipa without plist (default behavior)
+          xcodebuild -exportArchive \
+            -archivePath $PWD/build/App.xcarchive \
+            -exportPath $PWD/build/export \
+            -allowProvisioningUpdates \
+            -exportOptionsPlist <(echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>method</key><string>development</string><key>signingStyle</key><string>manual</string><key>stripSwiftSymbols</key><true/><key>compileBitcode</key><false/><key>destination</key><string>export</string></dict></plist>') \
+            | tee xcodebuild-export.log
+
+          mkdir -p release
+          cp build/export/*.ipa release/App-${{ steps.timestamp.outputs.datetime_tag }}.ipa
+
+      - name: Print Xcode build log on failure
+        if: failure()
+        run: tail -n 100 ios/App/xcodebuild.log || echo "No build log"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-artifact
+          path: ios/App/release/*.ipa
+
+
+  build-android:
+    runs-on: ubuntu-latest
+    needs: build-ios
+    outputs:
+      datetime_tag: ${{ needs.build-ios.outputs.datetime_tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,13 +82,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
-
-      - name: Set time-based release tag (GMT -4)
-        id: timestamp
-        run: |
-          export TZ=America/Puerto_Rico
-          DATETIME=$(date +"%Y-%m-%d-%H-%M")
-          echo "datetime_tag=$DATETIME" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: npm ci
@@ -46,7 +99,7 @@ jobs:
       - name: Rename and upload APK artifact
         run: |
           mkdir -p release
-          cp android/app/build/outputs/apk/release/app-release-unsigned.apk release/app-${{ steps.timestamp.outputs.datetime_tag }}.apk
+          cp android/app/build/outputs/apk/release/app-release-unsigned.apk release/app-${{ needs.build-ios.outputs.datetime_tag }}.apk
 
       - uses: actions/upload-artifact@v4
         with:
@@ -54,85 +107,9 @@ jobs:
           path: release/*.apk
 
 
-    build-ios:
-    runs-on: macos-latest
-    needs: build-android
-    outputs:
-      datetime_tag: ${{ needs.build-android.outputs.datetime_tag }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Prepare iOS build
-        run: |
-          npm run build
-          npx cap sync ios
-          cd ios/App
-          pod install
-
-      - name: Build and export unsigned IPA
-        run: |
-          cd ios/App
-
-          # Archive the build
-          xcodebuild -workspace App.xcworkspace \
-            -scheme App \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination generic/platform=iOS \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            -archivePath $PWD/build/App.xcarchive archive | tee xcodebuild.log
-
-          # Write ExportOptions.plist
-          cat > ExportOptions.plist <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>method</key>
-  <string>development</string>
-  <key>signingStyle</key>
-  <string>manual</string>
-  <key>stripSwiftSymbols</key>
-  <true/>
-  <key>destination</key>
-  <string>export</string>
-  <key>compileBitcode</key>
-  <false/>
-</dict>
-</plist>
-EOF
-
-          # Export unsigned IPA
-          xcodebuild -exportArchive \
-            -archivePath $PWD/build/App.xcarchive \
-            -exportOptionsPlist ExportOptions.plist \
-            -exportPath $PWD/build/export | tee xcodebuild-export.log
-
-          mkdir -p release
-          cp build/export/*.ipa release/App-${{ needs.build-android.outputs.datetime_tag }}.ipa
-
-      - name: Print Xcode build log on failure
-        if: failure()
-        run: tail -n 100 ios/App/xcodebuild.log || echo "No build log"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ios-artifact
-          path: ios/App/release/*.ipa
-
-
-
   release:
     runs-on: ubuntu-latest
-    needs: [build-android, build-ios]
+    needs: [build-ios, build-android]
     steps:
       - uses: actions/checkout@v4
 
@@ -151,8 +128,8 @@ EOF
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: release-${{ needs.build-android.outputs.datetime_tag }}
-          name: Release ${{ needs.build-android.outputs.datetime_tag }}
+          tag_name: release-${{ needs.build-ios.outputs.datetime_tag }}
+          name: Release ${{ needs.build-ios.outputs.datetime_tag }}
           files: |
             release/*.apk
             release/*.ipa
