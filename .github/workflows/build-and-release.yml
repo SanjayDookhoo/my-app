@@ -70,31 +70,42 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build unsigned IPA
+      - name: Build iOS Archive and IPA (Unsigned)
         run: |
           npm run build
           npx cap sync ios
           cd ios/App
           pod install
-          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -sdk iphoneos \
+
+          # Archive the app
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
             -destination generic/platform=iOS \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            build | tee xcodebuild.log
+            -archivePath $PWD/build/App.xcarchive archive | tee xcodebuild.log
 
-          mkdir -p Payload
-          cp -r build/Release-iphoneos/*.app Payload/
-          zip -r App-${{ needs.build-android.outputs.datetime_tag }}.ipa Payload
+          # Export unsigned .ipa without plist (default behavior)
+          xcodebuild -exportArchive \
+            -archivePath $PWD/build/App.xcarchive \
+            -exportPath $PWD/build/export \
+            -allowProvisioningUpdates \
+            -exportOptionsPlist <(echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>method</key><string>development</string><key>signingStyle</key><string>manual</string><key>stripSwiftSymbols</key><true/><key>compileBitcode</key><false/><key>destination</key><string>export</string></dict></plist>') \
+            | tee xcodebuild-export.log
+
           mkdir -p release
-          mv App-${{ needs.build-android.outputs.datetime_tag }}.ipa release/
+          cp build/export/*.ipa release/App-${{ needs.build-android.outputs.datetime_tag }}.ipa
 
       - name: Print Xcode build log on failure
         if: failure()
-        run: tail -n 100 ios/App/xcodebuild.log
+        run: tail -n 100 ios/App/xcodebuild.log || echo "No build log"
 
       - uses: actions/upload-artifact@v4
         with:
           name: ios-artifact
-          path: release/*.ipa
+          path: ios/App/release/*.ipa
+
 
   release:
     runs-on: ubuntu-latest
