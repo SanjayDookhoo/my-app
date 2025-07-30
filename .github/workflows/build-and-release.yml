@@ -1,4 +1,4 @@
-name: Build and Release Capacitor App 
+name: Build and Release Capacitor App
 
 on:
   push:
@@ -27,48 +27,29 @@ jobs:
           DATETIME=$(date +"%Y-%m-%d-%H-%M")
           echo "datetime_tag=$DATETIME" >> "$GITHUB_OUTPUT"
 
-      - name: Build iOS Archive and IPA (Unsigned)
+      - name: Build iOS and Manually Package IPA
         run: |
           npm run build
           npx cap sync ios
           cd ios/App
           pod install
 
-          # Archive the app
+          # Build .app
           xcodebuild -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
             -destination generic/platform=iOS \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            -archivePath $PWD/build/App.xcarchive archive | tee xcodebuild.log
+            build | tee xcodebuild.log
 
-          # Write ExportOptions.plist to disk
-          echo '<?xml version="1.0" encoding="UTF-8"?>' > ExportOptions.plist
-          echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> ExportOptions.plist
-          echo '<plist version="1.0">' >> ExportOptions.plist
-          echo '<dict>' >> ExportOptions.plist
-          echo '  <key>method</key>' >> ExportOptions.plist
-          echo '  <string>development</string>' >> ExportOptions.plist
-          echo '  <key>signingStyle</key>' >> ExportOptions.plist
-          echo '  <string>manual</string>' >> ExportOptions.plist
-          echo '  <key>stripSwiftSymbols</key>' >> ExportOptions.plist
-          echo '  <true/>' >> ExportOptions.plist
-          echo '  <key>compileBitcode</key>' >> ExportOptions.plist
-          echo '  <false/>' >> ExportOptions.plist
-          echo '  <key>destination</key>' >> ExportOptions.plist
-          echo '  <string>export</string>' >> ExportOptions.plist
-          echo '</dict>' >> ExportOptions.plist
-          echo '</plist>' >> ExportOptions.plist
-
-          # Export unsigned IPA
-          xcodebuild -exportArchive \
-            -archivePath $PWD/build/App.xcarchive \
-            -exportOptionsPlist ExportOptions.plist \
-            -exportPath $PWD/build/export | tee xcodebuild-export.log
+          # Manually package .app into .ipa
+          mkdir -p Payload
+          cp -r build/Release-iphoneos/*.app Payload/
+          zip -r App-${{ steps.timestamp.outputs.datetime_tag }}.ipa Payload
 
           mkdir -p release
-          cp build/export/*.ipa release/App-${{ steps.timestamp.outputs.datetime_tag }}.ipa
+          mv App-${{ steps.timestamp.outputs.datetime_tag }}.ipa release/
 
       - name: Print Xcode build log on failure
         if: failure()
