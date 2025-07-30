@@ -12,10 +12,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js and Java
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
 
       - name: Set time-based release tag (GMT -4)
         id: timestamp
@@ -33,8 +39,6 @@ jobs:
           npx cap sync android
           cd android
           ./gradlew assembleRelease
-        env:
-          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
 
       - name: Rename and upload APK artifact
         run: |
@@ -45,6 +49,7 @@ jobs:
         with:
           name: android-artifact
           path: release/*.apk
+
 
   build-ios:
     runs-on: macos-latest
