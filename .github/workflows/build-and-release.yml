@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Set up Java 17
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -40,10 +40,13 @@ jobs:
           cd android
           ./gradlew assembleRelease
 
+      - name: Debug APK output path
+        run: find android/app/build/outputs -type f
+
       - name: Rename and upload APK artifact
         run: |
           mkdir -p release
-          cp android/app/build/outputs/apk/release/app-release.apk release/app-${{ steps.timestamp.outputs.datetime_tag }}.apk
+          cp android/app/build/outputs/apk/release/app-release-unsigned.apk release/app-${{ steps.timestamp.outputs.datetime_tag }}.apk
 
       - uses: actions/upload-artifact@v4
         with:
