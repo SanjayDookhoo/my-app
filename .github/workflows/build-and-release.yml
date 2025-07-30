@@ -75,16 +75,21 @@ jobs:
           npm run build
           npx cap sync ios
           cd ios/App
-          xcodebuild -scheme App -configuration Release -sdk iphoneos \
+          pod install
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -sdk iphoneos \
             -destination generic/platform=iOS \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            build
+            build | tee xcodebuild.log
 
           mkdir -p Payload
           cp -r build/Release-iphoneos/*.app Payload/
           zip -r App-${{ needs.build-android.outputs.datetime_tag }}.ipa Payload
           mkdir -p release
           mv App-${{ needs.build-android.outputs.datetime_tag }}.ipa release/
+
+      - name: Print Xcode build log on failure
+        if: failure()
+        run: tail -n 100 ios/App/xcodebuild.log
 
       - uses: actions/upload-artifact@v4
         with:
