@@ -7,8 +7,9 @@ on:
 jobs:
   build-ios:
     runs-on: macos-latest
+    needs: build-android
     outputs:
-      datetime_tag: ${{ steps.timestamp.outputs.datetime_tag }}
+      datetime_tag: ${{ needs.build-android.outputs.datetime_tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,13 +20,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Set time-based release tag (GMT -4)
-        id: timestamp
-        run: |
-          export TZ=America/Puerto_Rico
-          DATETIME=$(date +"%Y-%m-%d-%H-%M")
-          echo "datetime_tag=$DATETIME" >> "$GITHUB_OUTPUT"
 
       - name: Build iOS Archive and IPA (Unsigned)
         run: |
@@ -43,16 +37,32 @@ jobs:
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
             -archivePath $PWD/build/App.xcarchive archive | tee xcodebuild.log
 
-          # Export unsigned .ipa without plist (default behavior)
+          # Write ExportOptions.plist to disk
+          echo '<?xml version="1.0" encoding="UTF-8"?>' > ExportOptions.plist
+          echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> ExportOptions.plist
+          echo '<plist version="1.0">' >> ExportOptions.plist
+          echo '<dict>' >> ExportOptions.plist
+          echo '  <key>method</key>' >> ExportOptions.plist
+          echo '  <string>development</string>' >> ExportOptions.plist
+          echo '  <key>signingStyle</key>' >> ExportOptions.plist
+          echo '  <string>manual</string>' >> ExportOptions.plist
+          echo '  <key>stripSwiftSymbols</key>' >> ExportOptions.plist
+          echo '  <true/>' >> ExportOptions.plist
+          echo '  <key>compileBitcode</key>' >> ExportOptions.plist
+          echo '  <false/>' >> ExportOptions.plist
+          echo '  <key>destination</key>' >> ExportOptions.plist
+          echo '  <string>export</string>' >> ExportOptions.plist
+          echo '</dict>' >> ExportOptions.plist
+          echo '</plist>' >> ExportOptions.plist
+
+          # Export unsigned IPA
           xcodebuild -exportArchive \
             -archivePath $PWD/build/App.xcarchive \
-            -exportPath $PWD/build/export \
-            -allowProvisioningUpdates \
-            -exportOptionsPlist <(echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>method</key><string>development</string><key>signingStyle</key><string>manual</string><key>stripSwiftSymbols</key><true/><key>compileBitcode</key><false/><key>destination</key><string>export</string></dict></plist>') \
-            | tee xcodebuild-export.log
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath $PWD/build/export | tee xcodebuild-export.log
 
           mkdir -p release
-          cp build/export/*.ipa release/App-${{ steps.timestamp.outputs.datetime_tag }}.ipa
+          cp build/export/*.ipa release/App-${{ needs.build-android.outputs.datetime_tag }}.ipa
 
       - name: Print Xcode build log on failure
         if: failure()
@@ -62,6 +72,7 @@ jobs:
         with:
           name: ios-artifact
           path: ios/App/release/*.ipa
+
 
 
   build-android:
