@@ -1,4 +1,4 @@
-name: Build and Release Capacitor App
+name: Build and Release Capacitor App 
 
 on:
   push:
