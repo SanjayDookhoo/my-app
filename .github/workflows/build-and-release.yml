@@ -7,9 +7,8 @@ on:
 jobs:
   build-ios:
     runs-on: macos-latest
-    needs: build-android
     outputs:
-      datetime_tag: ${{ needs.build-android.outputs.datetime_tag }}
+      datetime_tag: ${{ steps.timestamp.outputs.datetime_tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +19,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Set time-based release tag (GMT -4)
+        id: timestamp
+        run: |
+          export TZ=America/Puerto_Rico
+          DATETIME=$(date +"%Y-%m-%d-%H-%M")
+          echo "datetime_tag=$DATETIME" >> "$GITHUB_OUTPUT"
 
       - name: Build iOS Archive and IPA (Unsigned)
         run: |
@@ -62,7 +68,7 @@ jobs:
             -exportPath $PWD/build/export | tee xcodebuild-export.log
 
           mkdir -p release
-          cp build/export/*.ipa release/App-${{ needs.build-android.outputs.datetime_tag }}.ipa
+          cp build/export/*.ipa release/App-${{ steps.timestamp.outputs.datetime_tag }}.ipa
 
       - name: Print Xcode build log on failure
         if: failure()
@@ -72,8 +78,6 @@ jobs:
         with:
           name: ios-artifact
           path: ios/App/release/*.ipa
-
-
 
   build-android:
     runs-on: ubuntu-latest
@@ -116,7 +120,6 @@ jobs:
         with:
           name: android-artifact
           path: release/*.apk
-
 
   release:
     runs-on: ubuntu-latest
